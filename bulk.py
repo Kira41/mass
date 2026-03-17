@@ -39,103 +39,112 @@ HTML_TEMPLATE = """
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dark SMTP Sender</title>
+  <title>SMTP Command Center</title>
   <style>
     :root {
-      --bg: #050505;
-      --panel: #111111;
-      --panel-2: #171717;
-      --panel-3: #1f1f1f;
-      --text: #f3f3f3;
-      --muted: #9e9e9e;
-      --accent: #36d399;
-      --accent-2: #2bb383;
-      --border: #292929;
-      --error: #ff6b6b;
+      --bg: #0b1220;
+      --panel: #121a2b;
+      --panel-2: #18233a;
+      --line: #273552;
+      --text: #e8eefc;
+      --muted: #9fb0d3;
+      --primary: #58a6ff;
+      --success: #27c281;
+      --warning: #f4b740;
+      --danger: #ff6b6b;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --radius: 16px;
     }
 
     * { box-sizing: border-box; }
-    body {
+    html, body {
       margin: 0;
-      font-family: Inter, Segoe UI, Roboto, sans-serif;
+      padding: 0;
       background: var(--bg);
-      background-image: radial-gradient(circle at top right, #1b1b1b 0%, #050505 46%);
       color: var(--text);
-      min-height: 100vh;
-      padding: 24px;
+      font-family: Tahoma, Arial, sans-serif;
     }
-
-    .container {
-      max-width: 1100px;
+    body {
+      padding: 20px;
+    }
+    .app {
+      max-width: 1600px;
       margin: 0 auto;
-      display: grid;
-      gap: 16px;
     }
 
-    h1 {
-      margin: 0;
-      text-align: center;
-      letter-spacing: .6px;
-      color: var(--accent);
+    .topbar {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
     }
+    .title-wrap h1 { margin: 0 0 6px; font-size: 30px; }
+    .title-wrap p { margin: 0; color: var(--muted); }
 
     .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
       padding: 16px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--shadow);
     }
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
+      gap: 16px;
     }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .stat {
+      padding: 16px;
+      border-radius: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+    .stat .label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .stat .value { font-size: 30px; font-weight: bold; }
 
     .full { grid-column: 1 / -1; }
 
     label {
       display: block;
       margin-bottom: 6px;
+      font-size: 13px;
       color: var(--muted);
-      font-size: 14px;
+      margin-bottom: 6px;
     }
 
     input, textarea, select {
       width: 100%;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      background: #0f1728;
       color: var(--text);
-      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 13px;
       font-size: 14px;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    input:focus, textarea:focus, select:focus {
       outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(54, 211, 153, 0.2);
     }
 
+    input:focus, textarea:focus, select:focus { border-color: var(--primary); }
     textarea { min-height: 120px; resize: vertical; }
 
     button {
-      border: none;
-      background: var(--accent);
-      color: #000;
-      border-radius: 8px;
-      padding: 12px 18px;
-      font-weight: 700;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 12px;
       cursor: pointer;
-      transition: transform 0.12s ease, background-color 0.2s ease;
+      font-size: 14px;
+      transition: .2s ease;
+      box-shadow: var(--shadow);
     }
 
-    button:hover {
-      background: var(--accent-2);
-      transform: translateY(-1px);
-    }
+    button:hover { transform: translateY(-1px); border-color: var(--primary); }
+
+    .btn-success { background: var(--success); color: #07150f; border-color: transparent; font-weight: bold; }
 
     button:disabled {
       opacity: 0.55;
@@ -143,18 +152,32 @@ HTML_TEMPLATE = """
       transform: none;
     }
 
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: bold;
+      border: 1px solid transparent;
+    }
+    .status.ok { background: rgba(39,194,129,.12); color: #7ff0bb; border-color: rgba(39,194,129,.35); }
+    .status.warn { background: rgba(244,183,64,.12); color: #ffd97d; border-color: rgba(244,183,64,.35); }
+    .status.err { background: rgba(255,107,107,.12); color: #ff9d9d; border-color: rgba(255,107,107,.35); }
+
     .muted { color: var(--muted); font-size: 13px; }
     .result { white-space: pre-wrap; margin-top: 8px; }
-    .ok { color: var(--accent); }
-    .err { color: var(--error); }
+    .ok { color: var(--success); }
+    .err { color: var(--danger); }
 
     .monitor {
       margin-top: 12px;
-      border: 1px solid var(--border);
-      background: #0a0a0a;
-      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #0f1728;
+      border-radius: 12px;
       min-height: 180px;
-      max-height: 280px;
+      max-height: 340px;
       overflow: auto;
       padding: 12px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -164,19 +187,36 @@ HTML_TEMPLATE = """
     }
 
     .monitor-line { margin-bottom: 3px; }
-    .monitor-error { color: var(--error); }
-    .monitor-ok { color: var(--accent); }
+    .monitor-error { color: var(--danger); }
+    .monitor-ok { color: var(--success); }
+
+    @media (max-width: 1200px) {
+      .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
 
     @media (max-width: 820px) {
-      .grid { grid-template-columns: 1fr; }
+      .grid-4, .grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <main class="container">
-    <h1>SMTP Bulk Sender</h1>
+  <main class="app">
+    <div class="topbar">
+      <div class="title-wrap">
+        <h1>SMTP Bulk Sender</h1>
+        <p>Enhanced dashboard with live operational stats and monitor stream.</p>
+      </div>
+      <div id="jobStatus" class="status warn">Idle</div>
+    </div>
 
-    <form id="mailForm" class="card grid">
+    <section class="grid grid-4" style="margin-bottom:16px;">
+      <article class="stat"><div class="label">Recipients</div><div id="statTotal" class="value">0</div></article>
+      <article class="stat"><div class="label">Sent</div><div id="statSent" class="value">0</div></article>
+      <article class="stat"><div class="label">Failed</div><div id="statFailed" class="value">0</div></article>
+      <article class="stat"><div class="label">Success Rate</div><div id="statRate" class="value">0%</div></article>
+    </section>
+
+    <form id="mailForm" class="card grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
       <div>
         <label>SMTP IP / Host</label>
         <input name="smtp_host" required placeholder="127.0.0.1 or smtp.example.com" />
@@ -227,7 +267,7 @@ HTML_TEMPLATE = """
         <input name="workers" type="number" min="1" value="5" required />
       </div>
       <div class="full">
-        <button id="sendBtn" type="submit">Send</button>
+        <button id="sendBtn" class="btn-success" type="submit">Send</button>
         <p class="muted">Live monitoring is shown below for debugging and error diagnosis.</p>
         <div id="result" class="result muted">Idle.</div>
         <div id="monitor" class="monitor" aria-live="polite">[monitor] Waiting for a job...</div>
@@ -240,10 +280,16 @@ HTML_TEMPLATE = """
     const sendBtn = document.getElementById('sendBtn');
     const result = document.getElementById('result');
     const monitor = document.getElementById('monitor');
+    const statTotal = document.getElementById('statTotal');
+    const statSent = document.getElementById('statSent');
+    const statFailed = document.getElementById('statFailed');
+    const statRate = document.getElementById('statRate');
+    const jobStatus = document.getElementById('jobStatus');
 
     let monitorTimer = null;
     let currentJobId = null;
     let lastSeq = 0;
+    let runStats = { total: 0, sent: 0, failed: 0 };
 
     console.log('[SMTP Dashboard] Loaded dashboard and initialized form handlers');
 
@@ -258,6 +304,22 @@ HTML_TEMPLATE = """
     function resetMonitor() {
       monitor.innerHTML = '';
       appendMonitorLine('[monitor] New request started...');
+      runStats = { total: 0, sent: 0, failed: 0 };
+      renderStats();
+    }
+
+    function renderStats() {
+      const processed = runStats.sent + runStats.failed;
+      const rate = processed > 0 ? Math.round((runStats.sent / processed) * 100) : 0;
+      statTotal.textContent = String(runStats.total);
+      statSent.textContent = String(runStats.sent);
+      statFailed.textContent = String(runStats.failed);
+      statRate.textContent = `${rate}%`;
+    }
+
+    function setStatus(text, type = 'warn') {
+      jobStatus.textContent = text;
+      jobStatus.className = `status ${type}`;
     }
 
     async function pollMonitoring() {
@@ -279,17 +341,28 @@ HTML_TEMPLATE = """
           const line = `[${event.at}] [${event.level}] ${event.message}`;
           const cssClass = event.level === 'ERROR' ? 'monitor-error' : (event.level === 'SUCCESS' ? 'monitor-ok' : '');
           appendMonitorLine(line, cssClass);
+          if (event.level === 'SUCCESS' && event.message.includes(' sent to ')) {
+            runStats.sent += 1;
+          }
+          if (event.level === 'ERROR' && event.message.includes('recipient ')) {
+            runStats.failed += 1;
+          }
           if (event.level === 'ERROR') {
             console.error('[SMTP Dashboard][monitor]', event.message);
           } else {
             console.log('[SMTP Dashboard][monitor]', event.message);
           }
         }
+        renderStats();
 
         if (data.done) {
           appendMonitorLine('[monitor] Job finished.', 'monitor-ok');
           result.className = data.failed > 0 ? 'result err' : 'result ok';
           result.textContent = `Completed. Sent: ${data.sent} | Failed: ${data.failed}`;
+          runStats.sent = data.sent;
+          runStats.failed = data.failed;
+          renderStats();
+          setStatus(data.failed > 0 ? 'Completed with Errors' : 'Completed', data.failed > 0 ? 'err' : 'ok');
           if ((data.errors || []).length > 0) {
             appendMonitorLine('[monitor] Final error summary:', 'monitor-error');
             for (const err of data.errors) {
@@ -309,6 +382,7 @@ HTML_TEMPLATE = """
       currentJobId = jobId;
       lastSeq = 0;
       appendMonitorLine(`[monitor] Tracking job ${jobId}`);
+      setStatus('Running', 'warn');
       monitorTimer = setInterval(pollMonitoring, 700);
       pollMonitoring();
     }
@@ -328,8 +402,11 @@ HTML_TEMPLATE = """
       resetMonitor();
 
       const payload = Object.fromEntries(new FormData(form).entries());
+      runStats.total = (payload.recipients || '').split('\n').map((v) => v.trim()).filter(Boolean).length;
+      renderStats();
       payload.smtp_port = Number(payload.smtp_port);
       payload.workers = Number(payload.workers);
+      setStatus('Submitting', 'warn');
       console.debug('[SMTP Dashboard] Sending payload', {
         host: payload.smtp_host,
         port: payload.smtp_port,
@@ -355,11 +432,13 @@ HTML_TEMPLATE = """
           result.className = 'result err';
           result.textContent = data.error || 'Unknown error';
           appendMonitorLine(`[monitor] Request failed immediately: ${result.textContent}`, 'monitor-error');
+          setStatus('Failed', 'err');
           stopMonitoring();
         } else {
           result.className = 'result muted';
           result.textContent = 'Job accepted. Monitoring in progress...';
           appendMonitorLine('[monitor] Job accepted by API. Waiting for worker updates...');
+          setStatus('Accepted', 'warn');
           pollMonitoring();
         }
       } catch (error) {
@@ -367,6 +446,7 @@ HTML_TEMPLATE = """
         result.className = 'result err';
         result.textContent = `Request failed: ${error.message}`;
         appendMonitorLine(`[monitor] Request failed: ${error.message}`, 'monitor-error');
+        setStatus('Request Error', 'err');
         stopMonitoring();
       } finally {
         sendBtn.disabled = false;
