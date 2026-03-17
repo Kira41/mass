@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 import random
 import smtplib
 import ssl
 import threading
-import logging
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -13,9 +15,13 @@ from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(threadName)s %(message)s",
 )
+
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+MAX_EVENTS_PER_JOB = 300
 
 
 HTML_TEMPLATE = """
@@ -133,6 +139,25 @@ HTML_TEMPLATE = """
     .ok { color: var(--accent); }
     .err { color: var(--error); }
 
+    .monitor {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      background: #0a0a0a;
+      border-radius: 8px;
+      min-height: 180px;
+      max-height: 280px;
+      overflow: auto;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .monitor-line { margin-bottom: 3px; }
+    .monitor-error { color: var(--error); }
+    .monitor-ok { color: var(--accent); }
+
     @media (max-width: 820px) {
       .grid { grid-template-columns: 1fr; }
     }
@@ -194,8 +219,9 @@ HTML_TEMPLATE = """
       </div>
       <div class="full">
         <button id="sendBtn" type="submit">Send</button>
-        <p class="muted">Each worker opens its own SMTP connection and starts at approximately the same time.</p>
+        <p class="muted">Live monitoring is shown below for debugging and error diagnosis.</p>
         <div id="result" class="result muted">Idle.</div>
+        <div id="monitor" class="monitor" aria-live="polite">[monitor] Waiting for a job...</div>
       </div>
     </form>
   </main>
@@ -204,13 +230,85 @@ HTML_TEMPLATE = """
     const form = document.getElementById('mailForm');
     const sendBtn = document.getElementById('sendBtn');
     const result = document.getElementById('result');
+    const monitor = document.getElementById('monitor');
+
+    let monitorTimer = null;
+    let currentJobId = null;
+    let lastSeq = 0;
+
     console.log('[SMTP Dashboard] Loaded dashboard and initialized form handlers');
+
+    function appendMonitorLine(text, cssClass = '') {
+      const line = document.createElement('div');
+      line.className = `monitor-line ${cssClass}`.trim();
+      line.textContent = text;
+      monitor.appendChild(line);
+      monitor.scrollTop = monitor.scrollHeight;
+    }
+
+    function resetMonitor() {
+      monitor.innerHTML = '';
+      appendMonitorLine('[monitor] New request started...');
+    }
+
+    async function pollMonitoring() {
+      if (!currentJobId) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/monitor/${currentJobId}?after=${lastSeq}`);
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          appendMonitorLine(`[monitor] Failed to fetch monitoring: ${data.error || 'unknown error'}`, 'monitor-error');
+          return;
+        }
+
+        for (const event of data.events || []) {
+          lastSeq = Math.max(lastSeq, event.seq || 0);
+          const line = `[${event.at}] [${event.level}] ${event.message}`;
+          const cssClass = event.level === 'ERROR' ? 'monitor-error' : (event.level === 'SUCCESS' ? 'monitor-ok' : '');
+          appendMonitorLine(line, cssClass);
+          if (event.level === 'ERROR') {
+            console.error('[SMTP Dashboard][monitor]', event.message);
+          } else {
+            console.log('[SMTP Dashboard][monitor]', event.message);
+          }
+        }
+
+        if (data.done) {
+          appendMonitorLine('[monitor] Job finished.', 'monitor-ok');
+          stopMonitoring();
+        }
+      } catch (error) {
+        appendMonitorLine(`[monitor] Polling exception: ${error.message}`, 'monitor-error');
+        console.error('[SMTP Dashboard] Monitoring polling failed', error);
+      }
+    }
+
+    function startMonitoring(jobId) {
+      stopMonitoring();
+      currentJobId = jobId;
+      lastSeq = 0;
+      appendMonitorLine(`[monitor] Tracking job ${jobId}`);
+      monitorTimer = setInterval(pollMonitoring, 700);
+      pollMonitoring();
+    }
+
+    function stopMonitoring() {
+      if (monitorTimer) {
+        clearInterval(monitorTimer);
+        monitorTimer = null;
+      }
+    }
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       sendBtn.disabled = true;
       result.textContent = 'Sending...';
       result.className = 'result muted';
+      resetMonitor();
 
       const payload = Object.fromEntries(new FormData(form).entries());
       payload.smtp_port = Number(payload.smtp_port);
@@ -231,17 +329,33 @@ HTML_TEMPLATE = """
 
         const data = await response.json();
         console.debug('[SMTP Dashboard] API response', data);
+
+        if (data.job_id) {
+          startMonitoring(data.job_id);
+        }
+
         if (!response.ok || !data.ok) {
           result.className = 'result err';
           result.textContent = data.error || 'Unknown error';
+          appendMonitorLine(`[monitor] Request failed immediately: ${result.textContent}`, 'monitor-error');
+          stopMonitoring();
         } else {
           result.className = 'result ok';
           result.textContent = `Completed. Sent: ${data.sent} | Failed: ${data.failed}`;
+          if ((data.errors || []).length > 0) {
+            appendMonitorLine('[monitor] Error summary from API:', 'monitor-error');
+            for (const err of data.errors) {
+              appendMonitorLine(` - ${err}`, 'monitor-error');
+            }
+          }
+          pollMonitoring();
         }
       } catch (error) {
         console.error('[SMTP Dashboard] Request failed', error);
         result.className = 'result err';
         result.textContent = `Request failed: ${error.message}`;
+        appendMonitorLine(`[monitor] Request failed: ${error.message}`, 'monitor-error');
+        stopMonitoring();
       } finally {
         sendBtn.disabled = false;
       }
@@ -254,6 +368,31 @@ HTML_TEMPLATE = """
 
 def split_lines(raw: str) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def log_job_event(job_id: str, level: str, message: str):
+    timestamp = time.strftime("%H:%M:%S")
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job["seq"] += 1
+        event = {
+            "seq": job["seq"],
+            "at": timestamp,
+            "level": level,
+            "message": message,
+        }
+        job["events"].append(event)
+        if len(job["events"]) > MAX_EVENTS_PER_JOB:
+            job["events"] = job["events"][-MAX_EVENTS_PER_JOB:]
+
+    if level == "ERROR":
+        logging.error("[%s] %s", job_id, message)
+    elif level == "SUCCESS":
+        logging.info("[%s] %s", job_id, message)
+    else:
+        logging.debug("[%s] %s", job_id, message)
 
 
 def smtp_connect(host: str, port: int, username: str, password: str, mode: str = "auto"):
@@ -284,6 +423,7 @@ def smtp_connect(host: str, port: int, username: str, password: str, mode: str =
 
 
 def send_batch(
+    job_id: str,
     worker_id: int,
     host: str,
     port: int,
@@ -301,15 +441,18 @@ def send_batch(
     failed = 0
     errors = []
 
+    log_job_event(job_id, "INFO", f"Worker {worker_id} ready with {len(recipients)} recipients.")
     try:
         barrier.wait(timeout=10)
-        logging.debug("Worker %s passed startup barrier with %s recipients", worker_id, len(recipients))
+        log_job_event(job_id, "INFO", f"Worker {worker_id} passed startup barrier.")
     except threading.BrokenBarrierError:
-        logging.error("Worker %s barrier synchronization failed", worker_id)
+        log_job_event(job_id, "ERROR", f"Worker {worker_id}: startup synchronization failed.")
         return 0, len(recipients), [f"Worker {worker_id}: startup synchronization failed."]
 
     try:
+        log_job_event(job_id, "INFO", f"Worker {worker_id} opening SMTP connection to {host}:{port} mode={smtp_mode}.")
         with smtp_connect(host, port, username, password, smtp_mode) as smtp:
+            log_job_event(job_id, "SUCCESS", f"Worker {worker_id} SMTP connection established and logged in.")
             for recipient in recipients:
                 sender_email = random.choice(sender_emails)
                 sender_name = random.choice(sender_names)
@@ -323,15 +466,17 @@ def send_batch(
                 try:
                     smtp.sendmail(sender_email, [recipient], msg.as_string())
                     sent += 1
-                    logging.debug("Worker %s sent mail to %s from %s", worker_id, recipient, sender_email)
+                    log_job_event(job_id, "SUCCESS", f"Worker {worker_id} sent to {recipient} from {sender_email}.")
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
-                    logging.exception("Worker %s failed recipient=%s", worker_id, recipient)
-                    errors.append(f"Worker {worker_id} recipient {recipient}: {exc}")
+                    reason = f"Worker {worker_id} recipient {recipient}: {exc}"
+                    errors.append(reason)
+                    log_job_event(job_id, "ERROR", reason)
     except Exception as exc:  # noqa: BLE001
         failed += len(recipients)
-        logging.exception("Worker %s connection/auth error", worker_id)
-        errors.append(f"Worker {worker_id} connection/auth error: {exc}")
+        reason = f"Worker {worker_id} connection/auth error: {exc}"
+        errors.append(reason)
+        log_job_event(job_id, "ERROR", reason)
 
     return sent, failed, errors
 
@@ -341,8 +486,28 @@ def index():
     return render_template_string(HTML_TEMPLATE)
 
 
+@app.get("/monitor/<job_id>")
+def monitor(job_id: str):
+    after = int(request.args.get("after", 0))
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "job_id not found"}), 404
+
+        events = [event for event in job["events"] if event["seq"] > after]
+        done = job["done"]
+
+    return jsonify({"ok": True, "job_id": job_id, "done": done, "events": events})
+
+
 @app.post("/send")
 def send_mail():
+    job_id = uuid.uuid4().hex[:10]
+    with JOBS_LOCK:
+        JOBS[job_id] = {"events": [], "done": False, "seq": 0}
+
+    log_job_event(job_id, "INFO", "Incoming send request received by API.")
+
     try:
         payload = request.get_json(force=True)
 
@@ -358,30 +523,40 @@ def send_mail():
         recipients = split_lines(str(payload.get("recipients", "")))
         body = str(payload.get("body", "")).strip()
         workers = max(1, int(payload.get("workers", 1)))
-        logging.info(
-            "Incoming send request host=%s port=%s mode=%s workers=%s recipients=%s",
-            host,
-            port,
-            smtp_mode,
-            workers,
-            len(recipients),
+
+        log_job_event(
+            job_id,
+            "INFO",
+            f"Parsed payload host={host} port={port} mode={smtp_mode} workers={workers} recipients={len(recipients)}.",
         )
 
         if not (host and username and password and body):
-            return jsonify({"ok": False, "error": "SMTP host/user/password and body are required."}), 400
+            error = "SMTP host/user/password and body are required."
+            log_job_event(job_id, "ERROR", error)
+            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
         if not sender_emails:
-            return jsonify({"ok": False, "error": "At least one sender email is required."}), 400
+            error = "At least one sender email is required."
+            log_job_event(job_id, "ERROR", error)
+            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
         if not sender_names:
-            return jsonify({"ok": False, "error": "At least one sender name is required."}), 400
+            error = "At least one sender name is required."
+            log_job_event(job_id, "ERROR", error)
+            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
         if not subjects:
-            return jsonify({"ok": False, "error": "At least one subject is required."}), 400
+            error = "At least one subject is required."
+            log_job_event(job_id, "ERROR", error)
+            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
         if not recipients:
-            return jsonify({"ok": False, "error": "At least one recipient is required."}), 400
+            error = "At least one recipient is required."
+            log_job_event(job_id, "ERROR", error)
+            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
 
         workers = min(workers, len(recipients))
         chunks = [[] for _ in range(workers)]
         for index, recipient in enumerate(recipients):
             chunks[index % workers].append(recipient)
+
+        log_job_event(job_id, "INFO", f"Split workload into {workers} workers.")
 
         barrier = threading.Barrier(workers)
         total_sent = 0
@@ -392,6 +567,7 @@ def send_mail():
             futures = [
                 executor.submit(
                     send_batch,
+                    job_id,
                     worker_id,
                     host,
                     port,
@@ -413,17 +589,34 @@ def send_mail():
                 total_sent += sent
                 total_failed += failed
                 all_errors.extend(errors)
+                log_job_event(
+                    job_id,
+                    "INFO",
+                    f"Worker completed. Aggregate sent={total_sent}, failed={total_failed}",
+                )
+
+        log_job_event(
+            job_id,
+            "SUCCESS",
+            f"Job finished. sent={total_sent}, failed={total_failed}, errors={len(all_errors)}",
+        )
 
         return jsonify(
             {
                 "ok": True,
+                "job_id": job_id,
                 "sent": total_sent,
                 "failed": total_failed,
                 "errors": all_errors[:20],
             }
         )
     except Exception as exc:  # noqa: BLE001
-        return jsonify({"ok": False, "error": f"Unexpected error: {exc}"}), 500
+        log_job_event(job_id, "ERROR", f"Unexpected error: {exc}")
+        return jsonify({"ok": False, "job_id": job_id, "error": f"Unexpected error: {exc}"}), 500
+    finally:
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["done"] = True
 
 
 if __name__ == "__main__":
