@@ -141,6 +141,13 @@ HTML_TEMPLATE = """
         <label>Email Body</label>
         <textarea class="body-area" name="body" required placeholder="Use [URL] to insert random links"></textarea>
       </div>
+      <div>
+        <label>Body Format</label>
+        <select name="body_format">
+          <option value="html" selected>HTML (default)</option>
+          <option value="plain">Plain Text</option>
+        </select>
+      </div>
       <div class="full">
         <label>Recipient Emails (one per line)</label>
         <textarea name="recipients" required></textarea>
@@ -491,6 +498,7 @@ def send_batch(
     sender_names: list[str],
     subjects: list[str],
     body: str,
+    body_format: str,
     urls: list[str],
     src_urls: list[str],
     smtp_mode: str,
@@ -524,7 +532,7 @@ def send_batch(
                     rendered_src = build_src_image_url(selected_src_base, recipient)
                     rendered_body = rendered_body.replace("[SRC]", rendered_src)
 
-                msg = MIMEText(rendered_body, "plain", "utf-8")
+                msg = MIMEText(rendered_body, body_format, "utf-8")
                 msg["Subject"] = subject
                 msg["From"] = formataddr((sender_name, sender_email))
                 msg["To"] = recipient
@@ -625,6 +633,7 @@ def process_job(job_id: str, payload: dict):
         urls = split_lines(str(payload.get("urls", "")))
         src_urls = split_lines(str(payload.get("src", "")))
         body = str(payload.get("body", "")).strip()
+        body_format = str(payload.get("body_format", "html")).strip().lower() or "html"
         workers = max(1, int(payload.get("workers", 1)))
 
         log_job_event(
@@ -643,6 +652,8 @@ def process_job(job_id: str, payload: dict):
             raise ValueError("At least one subject is required.")
         if not recipients:
             raise ValueError("At least one recipient is required.")
+        if body_format not in {"plain", "html"}:
+            raise ValueError("body_format must be either 'plain' or 'html'.")
 
         workers = min(workers, len(recipients))
         chunks = [[] for _ in range(workers)]
@@ -672,6 +683,7 @@ def process_job(job_id: str, payload: dict):
                     sender_names,
                     subjects,
                     body,
+                    body_format,
                     urls,
                     src_urls,
                     smtp_mode,
