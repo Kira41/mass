@@ -39,142 +39,62 @@ HTML_TEMPLATE = """
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dark SMTP Sender</title>
+  <title>Modern SMTP Sender</title>
   <style>
     :root {
-      --bg: #050505;
-      --panel: #111111;
-      --panel-2: #171717;
-      --panel-3: #1f1f1f;
-      --text: #f3f3f3;
-      --muted: #9e9e9e;
-      --accent: #36d399;
-      --accent-2: #2bb383;
-      --border: #292929;
-      --error: #ff6b6b;
+      --bg: #0b1220;
+      --panel: #121a2b;
+      --panel-2: #18233a;
+      --line: #273552;
+      --text: #e8eefc;
+      --muted: #9fb0d3;
+      --primary: #58a6ff;
+      --success: #27c281;
+      --danger: #ff6b6b;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
     }
-
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, Segoe UI, Roboto, sans-serif;
-      background: var(--bg);
-      background-image: radial-gradient(circle at top right, #1b1b1b 0%, #050505 46%);
-      color: var(--text);
-      min-height: 100vh;
-      padding: 24px;
-    }
-
-    .container {
-      max-width: 1100px;
-      margin: 0 auto;
-      display: grid;
-      gap: 16px;
-    }
-
-    h1 {
-      margin: 0;
-      text-align: center;
-      letter-spacing: .6px;
-      color: var(--accent);
-    }
-
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-    }
-
+    body { margin: 0; padding: 20px; background: var(--bg); color: var(--text); font-family: Tahoma, Arial, sans-serif; }
+    .container { max-width: 1300px; margin: 0 auto; display: grid; gap: 16px; }
+    .title-wrap h1 { margin: 0 0 8px; font-size: 30px; }
+    .title-wrap p { margin: 0; color: var(--muted); }
+    .card { background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .full { grid-column: 1 / -1; }
-
-    label {
-      display: block;
-      margin-bottom: 6px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    input, textarea, select {
-      width: 100%;
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      padding: 10px;
-      font-size: 14px;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    input:focus, textarea:focus, select:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(54, 211, 153, 0.2);
-    }
-
-    textarea { min-height: 120px; resize: vertical; }
-
-    button {
-      border: none;
-      background: var(--accent);
-      color: #000;
-      border-radius: 8px;
-      padding: 12px 18px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 0.12s ease, background-color 0.2s ease;
-    }
-
-    button:hover {
-      background: var(--accent-2);
-      transform: translateY(-1px);
-    }
-
-    button:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-      transform: none;
-    }
-
+    .inline-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
+    input, textarea, select { width: 100%; background: #0f1728; color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; font-size: 14px; outline: none; }
+    input:focus, textarea:focus, select:focus { border-color: var(--primary); }
+    textarea { min-height: 110px; resize: vertical; line-height: 1.4; }
+    .body-area { min-height: 240px; }
+    button { border: 1px solid transparent; background: var(--primary); color: #08111f; padding: 10px 14px; border-radius: 12px; cursor: pointer; font-size: 14px; transition: .2s ease; font-weight: bold; box-shadow: var(--shadow); }
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: 0.6; cursor: wait; }
     .muted { color: var(--muted); font-size: 13px; }
     .result { white-space: pre-wrap; margin-top: 8px; }
-    .ok { color: var(--accent); }
-    .err { color: var(--error); }
-
-    .monitor {
-      margin-top: 12px;
-      border: 1px solid var(--border);
-      background: #0a0a0a;
-      border-radius: 8px;
-      min-height: 180px;
-      max-height: 280px;
-      overflow: auto;
-      padding: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-    }
-
+    .ok { color: var(--success); }
+    .err { color: var(--danger); }
+    .monitor-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0 8px; }
+    .monitor-stat { padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+    .monitor-stat .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .monitor-stat .value { font-size: 24px; font-weight: bold; }
+    .progress-wrap { margin: 12px 0 2px; }
+    .progress-bar { height: 12px; background: #0f1728; border-radius: 999px; border: 1px solid var(--line); overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--primary), var(--success)); transition: width .3s ease; }
+    .progress-text { margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .monitor-console { margin-top: 12px; border: 1px solid #333; background: #000; color: #fff; border-radius: 12px; min-height: 210px; max-height: 320px; overflow: auto; padding: 12px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
     .monitor-line { margin-bottom: 3px; }
-    .monitor-error { color: var(--error); }
-    .monitor-ok { color: var(--accent); }
-
-    @media (max-width: 820px) {
-      .grid { grid-template-columns: 1fr; }
-    }
+    .monitor-error { color: #ff7f7f; }
+    .monitor-ok { color: #7ff0bb; }
+    @media (max-width: 980px) { .grid, .inline-row, .monitor-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <main class="container">
-    <h1>SMTP Bulk Sender</h1>
+    <div class="title-wrap card">
+      <h1>SMTP Bulk Sender</h1>
+      <p>واجهة حديثة مع مراقبة مباشرة، حفظ تلقائي للبيانات، واستبدال [URL] بشكل عشوائي.</p>
+    </div>
 
     <form id="mailForm" class="card grid">
       <div>
@@ -202,25 +122,37 @@ HTML_TEMPLATE = """
           <option value="plain">Plain / No TLS</option>
         </select>
       </div>
-      <div class="full">
-        <label>Sender Emails (one per line)</label>
-        <textarea name="sender_emails" required></textarea>
-      </div>
-      <div class="full">
-        <label>Sender Names (one per line)</label>
-        <textarea name="sender_names" required></textarea>
+      <div class="full inline-row">
+        <div>
+          <label>Sender Name (one per line)</label>
+          <textarea name="sender_names" required></textarea>
+        </div>
+        <div>
+          <label>Email Sender (one per line)</label>
+          <textarea name="sender_emails" required></textarea>
+        </div>
       </div>
       <div class="full">
         <label>Email Subjects (one per line)</label>
         <textarea name="subjects" required></textarea>
       </div>
       <div class="full">
+        <label>Email Body</label>
+        <textarea class="body-area" name="body" required placeholder="Use [URL] to insert random links"></textarea>
+      </div>
+      <div class="full">
         <label>Recipient Emails (one per line)</label>
         <textarea name="recipients" required></textarea>
       </div>
-      <div class="full">
-        <label>Email Body</label>
-        <textarea name="body" required></textarea>
+      <div class="full inline-row">
+        <div>
+          <label>URL (one per line)</label>
+          <textarea name="urls" placeholder="https://link1.com&#10;https://link2.com"></textarea>
+        </div>
+        <div>
+          <label>SRC</label>
+          <textarea name="src" placeholder="Reserved for future use"></textarea>
+        </div>
       </div>
       <div>
         <label>Worker Threads</label>
@@ -230,7 +162,17 @@ HTML_TEMPLATE = """
         <button id="sendBtn" type="submit">Send</button>
         <p class="muted">Live monitoring is shown below for debugging and error diagnosis.</p>
         <div id="result" class="result muted">Idle.</div>
-        <div id="monitor" class="monitor" aria-live="polite">[monitor] Waiting for a job...</div>
+        <div class="monitor-grid">
+          <div class="monitor-stat"><div class="label">Recipients</div><div id="statRecipients" class="value">0</div></div>
+          <div class="monitor-stat"><div class="label">Sent</div><div id="statSent" class="value">0</div></div>
+          <div class="monitor-stat"><div class="label">Failed</div><div id="statFailed" class="value">0</div></div>
+          <div class="monitor-stat"><div class="label">Success Rate</div><div id="statRate" class="value">0%</div></div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+          <div id="progressText" class="progress-text">0 / 0 processed</div>
+        </div>
+        <div id="monitor" class="monitor-console" aria-live="polite">[monitor] Waiting for a job...</div>
       </div>
     </form>
   </main>
@@ -240,10 +182,17 @@ HTML_TEMPLATE = """
     const sendBtn = document.getElementById('sendBtn');
     const result = document.getElementById('result');
     const monitor = document.getElementById('monitor');
+    const statRecipients = document.getElementById('statRecipients');
+    const statSent = document.getElementById('statSent');
+    const statFailed = document.getElementById('statFailed');
+    const statRate = document.getElementById('statRate');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
 
     let monitorTimer = null;
     let currentJobId = null;
     let lastSeq = 0;
+    const STORAGE_KEY = 'smtpBulkSenderFormV2';
 
     console.log('[SMTP Dashboard] Loaded dashboard and initialized form handlers');
 
@@ -258,6 +207,40 @@ HTML_TEMPLATE = """
     function resetMonitor() {
       monitor.innerHTML = '';
       appendMonitorLine('[monitor] New request started...');
+      updateStats(0, 0, 0);
+    }
+
+    function updateStats(totalRecipients, sent, failed) {
+      const processed = sent + failed;
+      const rate = processed ? Math.round((sent / processed) * 100) : 0;
+      const progress = totalRecipients ? Math.min(100, Math.round((processed / totalRecipients) * 100)) : 0;
+      statRecipients.textContent = String(totalRecipients || 0);
+      statSent.textContent = String(sent || 0);
+      statFailed.textContent = String(failed || 0);
+      statRate.textContent = `${rate}%`;
+      progressFill.style.width = `${progress}%`;
+      progressText.textContent = `${processed} / ${totalRecipients || 0} processed`;
+    }
+
+    function saveFormToStorage() {
+      const payload = Object.fromEntries(new FormData(form).entries());
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    }
+
+    function loadFormFromStorage() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        for (const [key, value] of Object.entries(data)) {
+          const field = form.elements.namedItem(key);
+          if (field) {
+            field.value = value;
+          }
+        }
+      } catch (error) {
+        console.warn('[SMTP Dashboard] Failed to parse local storage data', error);
+      }
     }
 
     async function pollMonitoring() {
@@ -285,6 +268,8 @@ HTML_TEMPLATE = """
             console.log('[SMTP Dashboard][monitor]', event.message);
           }
         }
+
+        updateStats(data.total_recipients || 0, data.sent || 0, data.failed || 0);
 
         if (data.done) {
           appendMonitorLine('[monitor] Job finished.', 'monitor-ok');
@@ -320,6 +305,9 @@ HTML_TEMPLATE = """
       }
     }
 
+    form.addEventListener('input', saveFormToStorage);
+    loadFormFromStorage();
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       sendBtn.disabled = true;
@@ -330,6 +318,7 @@ HTML_TEMPLATE = """
       const payload = Object.fromEntries(new FormData(form).entries());
       payload.smtp_port = Number(payload.smtp_port);
       payload.workers = Number(payload.workers);
+      saveFormToStorage();
       console.debug('[SMTP Dashboard] Sending payload', {
         host: payload.smtp_host,
         port: payload.smtp_port,
@@ -488,6 +477,7 @@ def send_batch(
     sender_names: list[str],
     subjects: list[str],
     body: str,
+    urls: list[str],
     smtp_mode: str,
     barrier: threading.Barrier,
 ):
@@ -512,7 +502,10 @@ def send_batch(
                 sender_name = random.choice(sender_names)
                 subject = random.choice(subjects)
 
-                msg = MIMEText(body, "plain", "utf-8")
+                selected_url = random.choice(urls) if urls else ""
+                rendered_body = body.replace("[URL]", selected_url) if "[URL]" in body else body
+
+                msg = MIMEText(rendered_body, "plain", "utf-8")
                 msg["Subject"] = subject
                 msg["From"] = formataddr((sender_name, sender_email))
                 msg["To"] = recipient
@@ -552,6 +545,7 @@ def monitor(job_id: str):
         done = job["done"]
         sent = job.get("sent", 0)
         failed = job.get("failed", 0)
+        total_recipients = job.get("total_recipients", 0)
         errors = job.get("errors", [])[:20]
 
     return jsonify(
@@ -561,6 +555,7 @@ def monitor(job_id: str):
             "done": done,
             "sent": sent,
             "failed": failed,
+            "total_recipients": total_recipients,
             "errors": errors,
             "events": events,
         }
@@ -571,7 +566,7 @@ def monitor(job_id: str):
 def send_mail():
     job_id = uuid.uuid4().hex[:10]
     with JOBS_LOCK:
-        JOBS[job_id] = {"events": [], "done": False, "seq": 0, "sent": 0, "failed": 0, "errors": []}
+        JOBS[job_id] = {"events": [], "done": False, "seq": 0, "sent": 0, "failed": 0, "errors": [], "total_recipients": 0}
 
     log_job_event(job_id, "INFO", "Incoming send request received by API.")
 
@@ -608,6 +603,8 @@ def process_job(job_id: str, payload: dict):
         sender_names = split_lines(str(payload.get("sender_names", "")))
         subjects = split_lines(str(payload.get("subjects", "")))
         recipients = split_lines(str(payload.get("recipients", "")))
+        urls = split_lines(str(payload.get("urls", "")))
+        _src = str(payload.get("src", ""))
         body = str(payload.get("body", "")).strip()
         workers = max(1, int(payload.get("workers", 1)))
 
@@ -633,6 +630,10 @@ def process_job(job_id: str, payload: dict):
         for index, recipient in enumerate(recipients):
             chunks[index % workers].append(recipient)
 
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["total_recipients"] = len(recipients)
+
         log_job_event(job_id, "INFO", f"Split workload into {workers} workers.")
 
         barrier = threading.Barrier(workers)
@@ -652,6 +653,7 @@ def process_job(job_id: str, payload: dict):
                     sender_names,
                     subjects,
                     body,
+                    urls,
                     smtp_mode,
                     barrier,
                 )
