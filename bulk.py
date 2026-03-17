@@ -4,6 +4,7 @@ import random
 import smtplib
 import ssl
 import threading
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -11,6 +12,10 @@ from email.utils import formataddr
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(threadName)s %(message)s",
+)
 
 
 HTML_TEMPLATE = """
@@ -25,9 +30,11 @@ HTML_TEMPLATE = """
       --bg: #050505;
       --panel: #111111;
       --panel-2: #171717;
+      --panel-3: #1f1f1f;
       --text: #f3f3f3;
       --muted: #9e9e9e;
       --accent: #36d399;
+      --accent-2: #2bb383;
       --border: #292929;
       --error: #ff6b6b;
     }
@@ -37,6 +44,7 @@ HTML_TEMPLATE = """
       margin: 0;
       font-family: Inter, Segoe UI, Roboto, sans-serif;
       background: var(--bg);
+      background-image: radial-gradient(circle at top right, #1b1b1b 0%, #050505 46%);
       color: var(--text);
       min-height: 100vh;
       padding: 24px;
@@ -61,6 +69,7 @@ HTML_TEMPLATE = """
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     }
 
     .grid {
@@ -78,7 +87,7 @@ HTML_TEMPLATE = """
       font-size: 14px;
     }
 
-    input, textarea {
+    input, textarea, select {
       width: 100%;
       background: var(--panel-2);
       border: 1px solid var(--border);
@@ -86,6 +95,13 @@ HTML_TEMPLATE = """
       color: var(--text);
       padding: 10px;
       font-size: 14px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(54, 211, 153, 0.2);
     }
 
     textarea { min-height: 120px; resize: vertical; }
@@ -98,6 +114,18 @@ HTML_TEMPLATE = """
       padding: 12px 18px;
       font-weight: 700;
       cursor: pointer;
+      transition: transform 0.12s ease, background-color 0.2s ease;
+    }
+
+    button:hover {
+      background: var(--accent-2);
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
     }
 
     .muted { color: var(--muted); font-size: 13px; }
@@ -130,6 +158,15 @@ HTML_TEMPLATE = """
       <div>
         <label>SMTP Password</label>
         <input name="smtp_pass" type="password" required />
+      </div>
+      <div>
+        <label>SMTP Security</label>
+        <select name="smtp_mode">
+          <option value="auto" selected>Auto (default)</option>
+          <option value="starttls">STARTTLS</option>
+          <option value="ssl">SSL/TLS (Implicit)</option>
+          <option value="plain">Plain / No TLS</option>
+        </select>
       </div>
       <div class="full">
         <label>Sender Emails (one per line)</label>
@@ -167,6 +204,7 @@ HTML_TEMPLATE = """
     const form = document.getElementById('mailForm');
     const sendBtn = document.getElementById('sendBtn');
     const result = document.getElementById('result');
+    console.log('[SMTP Dashboard] Loaded dashboard and initialized form handlers');
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -177,6 +215,12 @@ HTML_TEMPLATE = """
       const payload = Object.fromEntries(new FormData(form).entries());
       payload.smtp_port = Number(payload.smtp_port);
       payload.workers = Number(payload.workers);
+      console.debug('[SMTP Dashboard] Sending payload', {
+        host: payload.smtp_host,
+        port: payload.smtp_port,
+        workers: payload.workers,
+        smtp_mode: payload.smtp_mode
+      });
 
       try {
         const response = await fetch('/send', {
@@ -186,6 +230,7 @@ HTML_TEMPLATE = """
         });
 
         const data = await response.json();
+        console.debug('[SMTP Dashboard] API response', data);
         if (!response.ok || !data.ok) {
           result.className = 'result err';
           result.textContent = data.error || 'Unknown error';
@@ -194,6 +239,7 @@ HTML_TEMPLATE = """
           result.textContent = `Completed. Sent: ${data.sent} | Failed: ${data.failed}`;
         }
       } catch (error) {
+        console.error('[SMTP Dashboard] Request failed', error);
         result.className = 'result err';
         result.textContent = `Request failed: ${error.message}`;
       } finally {
@@ -210,16 +256,30 @@ def split_lines(raw: str) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
-def smtp_connect(host: str, port: int, username: str, password: str):
+def smtp_connect(host: str, port: int, username: str, password: str, mode: str = "auto"):
     context = ssl.create_default_context()
-    if port == 465:
+
+    normalized_mode = mode.lower().strip() if mode else "auto"
+    logging.info("Opening SMTP connection host=%s port=%s mode=%s", host, port, normalized_mode)
+
+    if normalized_mode == "auto":
+        normalized_mode = "ssl" if port == 465 else "starttls"
+
+    if normalized_mode == "ssl":
         server = smtplib.SMTP_SSL(host=host, port=port, timeout=30, context=context)
-    else:
+    elif normalized_mode == "starttls":
         server = smtplib.SMTP(host=host, port=port, timeout=30)
         server.ehlo()
         server.starttls(context=context)
         server.ehlo()
+    elif normalized_mode == "plain":
+        server = smtplib.SMTP(host=host, port=port, timeout=30)
+        server.ehlo()
+    else:
+        raise ValueError("Invalid smtp_mode. Use auto, starttls, ssl, or plain.")
+
     server.login(username, password)
+    logging.info("SMTP login successful for user=%s using mode=%s", username, normalized_mode)
     return server
 
 
@@ -234,6 +294,7 @@ def send_batch(
     sender_names: list[str],
     subjects: list[str],
     body: str,
+    smtp_mode: str,
     barrier: threading.Barrier,
 ):
     sent = 0
@@ -242,11 +303,13 @@ def send_batch(
 
     try:
         barrier.wait(timeout=10)
+        logging.debug("Worker %s passed startup barrier with %s recipients", worker_id, len(recipients))
     except threading.BrokenBarrierError:
+        logging.error("Worker %s barrier synchronization failed", worker_id)
         return 0, len(recipients), [f"Worker {worker_id}: startup synchronization failed."]
 
     try:
-        with smtp_connect(host, port, username, password) as smtp:
+        with smtp_connect(host, port, username, password, smtp_mode) as smtp:
             for recipient in recipients:
                 sender_email = random.choice(sender_emails)
                 sender_name = random.choice(sender_names)
@@ -260,11 +323,14 @@ def send_batch(
                 try:
                     smtp.sendmail(sender_email, [recipient], msg.as_string())
                     sent += 1
+                    logging.debug("Worker %s sent mail to %s from %s", worker_id, recipient, sender_email)
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
+                    logging.exception("Worker %s failed recipient=%s", worker_id, recipient)
                     errors.append(f"Worker {worker_id} recipient {recipient}: {exc}")
     except Exception as exc:  # noqa: BLE001
         failed += len(recipients)
+        logging.exception("Worker %s connection/auth error", worker_id)
         errors.append(f"Worker {worker_id} connection/auth error: {exc}")
 
     return sent, failed, errors
@@ -284,6 +350,7 @@ def send_mail():
         port = int(payload.get("smtp_port", 587))
         username = str(payload.get("smtp_user", "")).strip()
         password = str(payload.get("smtp_pass", ""))
+        smtp_mode = str(payload.get("smtp_mode", "auto")).strip().lower() or "auto"
 
         sender_emails = split_lines(str(payload.get("sender_emails", "")))
         sender_names = split_lines(str(payload.get("sender_names", "")))
@@ -291,6 +358,14 @@ def send_mail():
         recipients = split_lines(str(payload.get("recipients", "")))
         body = str(payload.get("body", "")).strip()
         workers = max(1, int(payload.get("workers", 1)))
+        logging.info(
+            "Incoming send request host=%s port=%s mode=%s workers=%s recipients=%s",
+            host,
+            port,
+            smtp_mode,
+            workers,
+            len(recipients),
+        )
 
         if not (host and username and password and body):
             return jsonify({"ok": False, "error": "SMTP host/user/password and body are required."}), 400
@@ -327,6 +402,7 @@ def send_mail():
                     sender_names,
                     subjects,
                     body,
+                    smtp_mode,
                     barrier,
                 )
                 for worker_id, chunk in enumerate(chunks, start=1)
