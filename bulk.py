@@ -413,25 +413,67 @@ def smtp_connect(host: str, port: int, username: str, password: str, mode: str =
     normalized_mode = mode.lower().strip() if mode else "auto"
     logging.info("Opening SMTP connection host=%s port=%s mode=%s", host, port, normalized_mode)
 
-    if normalized_mode == "auto":
-        normalized_mode = "ssl" if port == 465 else "starttls"
+    def connect_ssl():
+        return smtplib.SMTP_SSL(host=host, port=port, timeout=30, context=context)
 
-    if normalized_mode == "ssl":
-        server = smtplib.SMTP_SSL(host=host, port=port, timeout=30, context=context)
-    elif normalized_mode == "starttls":
+    def connect_starttls():
         server = smtplib.SMTP(host=host, port=port, timeout=30)
         server.ehlo()
+        if not server.has_extn("starttls"):
+            server.close()
+            raise smtplib.SMTPNotSupportedError("STARTTLS extension not supported by server.")
         server.starttls(context=context)
         server.ehlo()
-    elif normalized_mode == "plain":
+        return server
+
+    def connect_plain():
         server = smtplib.SMTP(host=host, port=port, timeout=30)
         server.ehlo()
-    else:
+        return server
+
+    if normalized_mode in {"ssl", "starttls", "plain"}:
+        connector = {
+            "ssl": connect_ssl,
+            "starttls": connect_starttls,
+            "plain": connect_plain,
+        }[normalized_mode]
+        server = connector()
+        server.login(username, password)
+        logging.info("SMTP login successful for user=%s using mode=%s", username, normalized_mode)
+        return server
+
+    if normalized_mode != "auto":
         raise ValueError("Invalid smtp_mode. Use auto, starttls, ssl, or plain.")
 
-    server.login(username, password)
-    logging.info("SMTP login successful for user=%s using mode=%s", username, normalized_mode)
-    return server
+    if port == 465:
+        attempts = [("ssl", connect_ssl), ("starttls", connect_starttls), ("plain", connect_plain)]
+    else:
+        attempts = [("starttls", connect_starttls), ("plain", connect_plain), ("ssl", connect_ssl)]
+
+    attempt_errors = []
+    for attempt_mode, connector in attempts:
+        server = None
+        try:
+            server = connector()
+            server.login(username, password)
+            logging.info("SMTP login successful for user=%s using mode=%s", username, attempt_mode)
+            return server
+        except Exception as exc:  # noqa: BLE001
+            attempt_errors.append(f"{attempt_mode}: {exc}")
+            logging.warning(
+                "SMTP auto mode attempt failed host=%s port=%s mode=%s error=%s",
+                host,
+                port,
+                attempt_mode,
+                exc,
+            )
+            if server is not None:
+                try:
+                    server.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    raise ConnectionError(f"Unable to establish SMTP connection in auto mode. Attempts: {' | '.join(attempt_errors)}")
 
 
 def send_batch(
