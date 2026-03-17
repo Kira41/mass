@@ -7,6 +7,7 @@ import ssl
 import threading
 import time
 import uuid
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.mime.text import MIMEText
 from email.utils import formataddr
@@ -371,6 +372,19 @@ def split_lines(raw: str) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
+def email_to_10_digits(email: str) -> str:
+    normalized = email.strip().lower()
+    digest = hashlib.sha256(normalized.encode("utf-8")).digest()
+    num = int.from_bytes(digest[:8], "big") % 10_000_000_000
+    return str(num).zfill(10)
+
+
+def build_src_image_url(src_base_url: str, recipient_email: str) -> str:
+    src_id = email_to_10_digits(recipient_email)
+    base = src_base_url.strip().rstrip("/")
+    return f"{base}/image/{src_id}.png"
+
+
 def log_job_event(job_id: str, level: str, message: str):
     timestamp = time.strftime("%H:%M:%S")
     with JOBS_LOCK:
@@ -478,6 +492,7 @@ def send_batch(
     subjects: list[str],
     body: str,
     urls: list[str],
+    src_urls: list[str],
     smtp_mode: str,
     barrier: threading.Barrier,
 ):
@@ -504,6 +519,10 @@ def send_batch(
 
                 selected_url = random.choice(urls) if urls else ""
                 rendered_body = body.replace("[URL]", selected_url) if "[URL]" in body else body
+                if "[SRC]" in rendered_body and src_urls:
+                    selected_src_base = random.choice(src_urls)
+                    rendered_src = build_src_image_url(selected_src_base, recipient)
+                    rendered_body = rendered_body.replace("[SRC]", rendered_src)
 
                 msg = MIMEText(rendered_body, "plain", "utf-8")
                 msg["Subject"] = subject
@@ -604,7 +623,7 @@ def process_job(job_id: str, payload: dict):
         subjects = split_lines(str(payload.get("subjects", "")))
         recipients = split_lines(str(payload.get("recipients", "")))
         urls = split_lines(str(payload.get("urls", "")))
-        _src = str(payload.get("src", ""))
+        src_urls = split_lines(str(payload.get("src", "")))
         body = str(payload.get("body", "")).strip()
         workers = max(1, int(payload.get("workers", 1)))
 
@@ -654,6 +673,7 @@ def process_job(job_id: str, payload: dict):
                     subjects,
                     body,
                     urls,
+                    src_urls,
                     smtp_mode,
                     barrier,
                 )
