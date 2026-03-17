@@ -24,6 +24,15 @@ JOBS_LOCK = threading.Lock()
 MAX_EVENTS_PER_JOB = 300
 
 
+def mark_job_done(job_id: str, sent: int = 0, failed: int = 0, errors: list[str] | None = None):
+    with JOBS_LOCK:
+        if job_id in JOBS:
+            JOBS[job_id]["done"] = True
+            JOBS[job_id]["sent"] = sent
+            JOBS[job_id]["failed"] = failed
+            JOBS[job_id]["errors"] = list(errors or [])
+
+
 HTML_TEMPLATE = """
 <!doctype html>
 <html lang="en">
@@ -279,6 +288,14 @@ HTML_TEMPLATE = """
 
         if (data.done) {
           appendMonitorLine('[monitor] Job finished.', 'monitor-ok');
+          result.className = data.failed > 0 ? 'result err' : 'result ok';
+          result.textContent = `Completed. Sent: ${data.sent} | Failed: ${data.failed}`;
+          if ((data.errors || []).length > 0) {
+            appendMonitorLine('[monitor] Final error summary:', 'monitor-error');
+            for (const err of data.errors) {
+              appendMonitorLine(` - ${err}`, 'monitor-error');
+            }
+          }
           stopMonitoring();
         }
       } catch (error) {
@@ -340,14 +357,9 @@ HTML_TEMPLATE = """
           appendMonitorLine(`[monitor] Request failed immediately: ${result.textContent}`, 'monitor-error');
           stopMonitoring();
         } else {
-          result.className = 'result ok';
-          result.textContent = `Completed. Sent: ${data.sent} | Failed: ${data.failed}`;
-          if ((data.errors || []).length > 0) {
-            appendMonitorLine('[monitor] Error summary from API:', 'monitor-error');
-            for (const err of data.errors) {
-              appendMonitorLine(` - ${err}`, 'monitor-error');
-            }
-          }
+          result.className = 'result muted';
+          result.textContent = 'Job accepted. Monitoring in progress...';
+          appendMonitorLine('[monitor] Job accepted by API. Waiting for worker updates...');
           pollMonitoring();
         }
       } catch (error) {
@@ -496,21 +508,54 @@ def monitor(job_id: str):
 
         events = [event for event in job["events"] if event["seq"] > after]
         done = job["done"]
+        sent = job.get("sent", 0)
+        failed = job.get("failed", 0)
+        errors = job.get("errors", [])[:20]
 
-    return jsonify({"ok": True, "job_id": job_id, "done": done, "events": events})
+    return jsonify(
+        {
+            "ok": True,
+            "job_id": job_id,
+            "done": done,
+            "sent": sent,
+            "failed": failed,
+            "errors": errors,
+            "events": events,
+        }
+    )
 
 
 @app.post("/send")
 def send_mail():
     job_id = uuid.uuid4().hex[:10]
     with JOBS_LOCK:
-        JOBS[job_id] = {"events": [], "done": False, "seq": 0}
+        JOBS[job_id] = {"events": [], "done": False, "seq": 0, "sent": 0, "failed": 0, "errors": []}
 
     log_job_event(job_id, "INFO", "Incoming send request received by API.")
 
     try:
         payload = request.get_json(force=True)
+    except Exception as exc:  # noqa: BLE001
+        mark_job_done(job_id, failed=0, errors=[f"Invalid JSON payload: {exc}"])
+        log_job_event(job_id, "ERROR", f"Invalid JSON payload: {exc}")
+        return jsonify({"ok": False, "job_id": job_id, "error": f"Invalid JSON payload: {exc}"}), 400
 
+    try:
+        thread = threading.Thread(target=process_job, args=(job_id, payload), daemon=True, name=f"job-{job_id}")
+        thread.start()
+        return jsonify({"ok": True, "job_id": job_id, "status": "started"}), 202
+    except Exception as exc:  # noqa: BLE001
+        mark_job_done(job_id, failed=0, errors=[f"Failed to start background job: {exc}"])
+        log_job_event(job_id, "ERROR", f"Failed to start background job: {exc}")
+        return jsonify({"ok": False, "job_id": job_id, "error": f"Failed to start background job: {exc}"}), 500
+
+
+def process_job(job_id: str, payload: dict):
+    total_sent = 0
+    total_failed = 0
+    all_errors: list[str] = []
+
+    try:
         host = str(payload.get("smtp_host", "")).strip()
         port = int(payload.get("smtp_port", 587))
         username = str(payload.get("smtp_user", "")).strip()
@@ -531,25 +576,15 @@ def send_mail():
         )
 
         if not (host and username and password and body):
-            error = "SMTP host/user/password and body are required."
-            log_job_event(job_id, "ERROR", error)
-            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
+            raise ValueError("SMTP host/user/password and body are required.")
         if not sender_emails:
-            error = "At least one sender email is required."
-            log_job_event(job_id, "ERROR", error)
-            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
+            raise ValueError("At least one sender email is required.")
         if not sender_names:
-            error = "At least one sender name is required."
-            log_job_event(job_id, "ERROR", error)
-            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
+            raise ValueError("At least one sender name is required.")
         if not subjects:
-            error = "At least one subject is required."
-            log_job_event(job_id, "ERROR", error)
-            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
+            raise ValueError("At least one subject is required.")
         if not recipients:
-            error = "At least one recipient is required."
-            log_job_event(job_id, "ERROR", error)
-            return jsonify({"ok": False, "job_id": job_id, "error": error}), 400
+            raise ValueError("At least one recipient is required.")
 
         workers = min(workers, len(recipients))
         chunks = [[] for _ in range(workers)]
@@ -559,9 +594,6 @@ def send_mail():
         log_job_event(job_id, "INFO", f"Split workload into {workers} workers.")
 
         barrier = threading.Barrier(workers)
-        total_sent = 0
-        total_failed = 0
-        all_errors = []
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [
@@ -600,23 +632,12 @@ def send_mail():
             "SUCCESS",
             f"Job finished. sent={total_sent}, failed={total_failed}, errors={len(all_errors)}",
         )
-
-        return jsonify(
-            {
-                "ok": True,
-                "job_id": job_id,
-                "sent": total_sent,
-                "failed": total_failed,
-                "errors": all_errors[:20],
-            }
-        )
     except Exception as exc:  # noqa: BLE001
+        all_errors.append(str(exc))
+        total_failed = max(total_failed, 1)
         log_job_event(job_id, "ERROR", f"Unexpected error: {exc}")
-        return jsonify({"ok": False, "job_id": job_id, "error": f"Unexpected error: {exc}"}), 500
     finally:
-        with JOBS_LOCK:
-            if job_id in JOBS:
-                JOBS[job_id]["done"] = True
+        mark_job_done(job_id, sent=total_sent, failed=total_failed, errors=all_errors)
 
 
 if __name__ == "__main__":
